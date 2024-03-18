@@ -1,0 +1,10 @@
+---
+title: "IBD prediction"
+output: html_notebook
+---
+
+```{r}
+library(data.table)
+library(readxl)
+```
+
