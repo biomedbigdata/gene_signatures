@@ -10,6 +10,8 @@ library(ggplot2)
 library(gprofiler2)
 library(glmnet)
 library(ComplexHeatmap)
+library(pROC)
+library(caret)
 set.seed(101)
 ```
 # Data preprocessing
@@ -161,44 +163,133 @@ Heatmap(t(apply( expr[names(high_var_genes),meta_MI$CEL_FILE] ,1,scale)),
         )
 ```
 # Recurrence prediction
-## Feature selection with logistic glm-net (M0)
 ```{r}
-x_genes <- unique_ortholog_mapping[in_signature==T,ortholog_name]
-x <- t(expr[x_genes,meta_M0$CEL_FILE])
-y <- meta_M0$RECURRENCE
+logistic_glmnet <- function(meta, expr, signature){
+  
+  x <- t(expr[signature, meta$CEL_FILE])
+  y <- meta$RECURRENCE
+  
+  fit <- glmnet(x, y, family = "binomial")
+  plot(fit, label = T)
+  cvfit <- cv.glmnet(x, y, family = "binomial")
+  plot(cvfit)
+  print(cvfit)
+}
 
-fit <- glmnet(x, y, family = "binomial")
-plot(fit, label = T)
-cvfit <- cv.glmnet(x, y, family = "binomial", type.measure = "class")
-plot(cvfit)
-print(cvfit)
+logistic_glm <- function(meta, expr, signature, roc=F, summary=F, performance=F){
+  
+  x <- t(expr[signature, meta$CEL_FILE])
+  y <- meta$RECURRENCE
+  
+  data <- as.data.frame(x)
+  data$RECURRENCE <- 0
+  data$RECURRENCE[y=="R"] <- 1
+  
+  glm_model <- glm(RECURRENCE ~.,family = "binomial", data)
+  
+  # prediction
+  model_prob = predict(glm_model, type = "response")
+  model_pred = ifelse(model_prob > 0.5, "R", "NR")
+  train_tab = table(predicted = model_pred, actual = y)
+  train_con_mat = confusionMatrix(train_tab)
+  
+  if(summary){
+    print(summary(glm_model))
+  }
+  
+  if(roc){
+    roc(y ~ model_prob, plot = TRUE, print.auc = TRUE)
+  }
 
-data <- as.data.frame(x)
-data$RECURRENCE <- 0
-data$RECURRENCE[y=="R"] <- 1
-glm_model <- glm(RECURRENCE ~.,family=binomial(link='logit'), data)
+  if(performance){
+    print(train_con_mat)
+  }
+  
+  train_con_mat$overall["Accuracy"]
+}
 ```
-## Feature selection with logistic glm-net (M6)
-```{r}
-x_genes <- unique_ortholog_mapping[in_signature==T,ortholog_name]
-x <- t(expr[x_genes,meta_M6$CEL_FILE])
-y <- meta_M6$RECURRENCE
 
-fit <- glmnet(x, y, family = "binomial")
-plot(fit, label = T)
-cvfit <- cv.glmnet(x, y, family = "binomial", type.measure = "class")
-plot(cvfit)
-print(cvfit)
+```{r}
+signature_human <- unique_ortholog_mapping[in_signature==T,ortholog_name]
 ```
-## Feature selection with logistic glm-net (MI)
-```{r}
-x_genes <- unique_ortholog_mapping[in_signature==T,ortholog_name]
-x <- t(expr[x_genes,meta_MI$CEL_FILE])
-y <- meta_MI$RECURRENCE
 
-fit <- glmnet(x, y, family = "binomial")
-plot(fit, label = T)
-cvfit <- cv.glmnet(x, y, family = "binomial", type.measure = "class")
-plot(cvfit)
-print(cvfit)
+## M0
+Feature selection with logistic glmnet
+```{r}
+logistic_glmnet(meta_M0, expr, signature_human)
+```
+
+Logistic regression with full signature
+```{r}
+# Analysis with glm
+accuracy <- logistic_glm(meta_M0, expr, signature_human, T, T, T)
+```
+Logistic regression with random signatures
+```{r}
+
+random_signatures <- lapply(1:1000,function(i){
+  sample(unique_ortholog_mapping$ortholog_name,length(signature_human))
+})
+
+random_accuracy <- sapply(random_signatures, function(random_signature){
+  logistic_glm(meta_M0, expr, random_signature)
+})
+
+ggplot(data.frame(random_accuracy=random_accuracy), aes(x=random_accuracy)) +
+  geom_histogram(bins=30) +
+  geom_vline(xintercept=accuracy, color="red")
+
+```
+
+## M6
+Feature selection with logistic glmnet
+```{r}
+logistic_glmnet(meta_M6, expr, signature_human)
+```
+Logistic regression with full signature
+```{r}
+# Analysis with glm
+accuracy <- logistic_glm(meta_M6, expr, signature_human, T, T, T)
+```
+Logistic regression with random signatures
+```{r}
+
+random_signatures <- lapply(1:1000,function(i){
+  sample(unique_ortholog_mapping$ortholog_name,length(signature_human))
+})
+
+random_accuracy <- sapply(random_signatures, function(random_signature){
+  logistic_glm(meta_M6, expr, random_signature)
+})
+
+ggplot(data.frame(random_accuracy=random_accuracy), aes(x=random_accuracy)) +
+  geom_histogram(bins=30) +
+  geom_vline(xintercept=accuracy, color="red")
+
+```
+## MI
+Feature selection with logistic glmnet
+```{r}
+logistic_glmnet(meta_MI, expr, signature_human)
+```
+Logistic regression with full signature
+```{r}
+# Analysis with glm
+accuracy <- logistic_glm(meta_MI, expr, signature_human, T, T, T)
+```
+Logistic regression with random signatures
+```{r}
+
+random_signatures <- lapply(1:1000,function(i){
+  sample(unique_ortholog_mapping$ortholog_name,length(signature_human))
+})
+
+random_accuracy <- sapply(random_signatures, function(random_signature){
+  logistic_glm(meta_MI, expr, random_signature)
+})
+
+ggplot(data.frame(random_accuracy=random_accuracy), aes(x=random_accuracy)) +
+  geom_histogram(bins=30) +
+  geom_vline(xintercept=accuracy, color="red")
+
 ```
