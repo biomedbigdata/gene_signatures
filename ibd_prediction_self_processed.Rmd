@@ -22,21 +22,25 @@ meta <- as.data.table(readxl::read_excel("data/transcritome_patients_translated.
 
 meta_key <- "CEL_FILE"
 setkeyv(meta, meta_key)                             # set key
+meta <- meta[LOCATION!="Ctrl"]
+meta[,CEL_FILE:=gsub('.CEL', '',CEL_FILE)]
 stopifnot(!any( duplicated(meta[,..meta_key]) ))    # check for duplicate rows
 stopifnot(!any( duplicated(colnames(meta)) ))       # check for duplicate columns
 
 
 # read expression data
-expr <- as.data.table(readxl::read_excel("data/transcriptome_expression_matrix.xlsx"))
-expr_key <- "gene"
+expr <- fread("/nfs/scratch/gene_signature/eset_symbol.txt")
+expr_key <- "V1"
 colnames(expr)[1] <- expr_key
 setkeyv(expr, expr_key)                             # set key
+
+colnames(expr) <- gsub(".*P_", "P_", colnames(expr))
 stopifnot(!any( duplicated(expr[,..expr_key]) ))    # check for duplicate rows
 stopifnot(!any( duplicated(colnames(expr)) ))       # check for duplicate columns
 
 expr <- expr[, c(key(expr), meta$CEL_FILE), with=F]
 stopifnot(all(colnames(expr)[-1]==meta[,CEL_FILE]))
-expr <- as.matrix(expr, rownames="gene")
+expr <- as.matrix(expr, rownames="V1")
 
 meta_M0 <- meta[LOCATION=="M0"]
 meta_MI <- meta[LOCATION=="MI"]
@@ -72,6 +76,7 @@ table(n_in_expr$n_hits)
 ```{r}
 # select only mouse genes with orthologs uniquely mapped to the human expression data
 unique_ortholog_mapping <- ortholog_mapping[input %in% n_in_expr[n_hits==1,input] & in_expr]
+unique_ortholog_mapping <- unique_ortholog_mapping[!duplicated(ortholog_name)]
 # unmapped signature genes
 print(paste0(nrow(unique_ortholog_mapping)," out of ",length(measured_genes_mouse), " measured mouse genes were mapped to the human expression genes"))
 ortholog_mapping[!input %in% unique_ortholog_mapping$input & in_signature]
