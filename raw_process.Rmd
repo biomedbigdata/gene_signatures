@@ -1,0 +1,42 @@
+---
+title: "raw microarry data process"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(affy)
+library(hgu133plus2.db)
+library(limma)
+```
+## load microarrary data
+```{r}
+# read cel file
+dir_cels <- "data/GSE186582"                    # path to raw data
+affyData <- ReadAffy(celfile.path = dir_cels)
+```
+## background coreection, Normalization
+```{r}
+# RMA normalization
+affyrma <- rma(affyData)
+sampleNames(affyrma) <- gsub(".CEL.gz$", "", sampleNames(affyrma))
+eset_f <- exprs(affyrma)
+```
+## map probe to gene symbol, aggregate same gene symbol by mean
+```{r}
+# map probe to gene symbol
+ids <- toTable(hgu133plus2SYMBOL) # get mapping table from hgu133plus2.db
+eset_f$probe_id <- rownames(eset_f)
+exprSet_symbol <- merge(ids,eset_f,by="probe_id",y.all=TRUE)
+exprSet_symbol$probe_id <- NULL
+
+# aggregation
+exprSet_symbol <- aggregate(x = exprSet_symbol[,-1],by = list(exprSet_symbol$symbol), FUN = mean)
+rownames(exprSet_symbol) <- exprSet_symbol[,1]
+exprSet_symbol <- as.data.frame(exprSet_symbol[,-1])
+```
+## write table
+```{r}
+dim(exprSet_symbol)
+write.table(exprSet_symbol, file = "eset_symbol.txt")
+```

@@ -1,0 +1,82 @@
+---
+title: "DEG Analysis"
+output: html_document
+---
+
+```{r}
+library(limma)
+library(readxl)
+```
+
+```{r}
+# load data
+eset_symbol <- read.table('eset_symbol.txt')
+metadata <- readxl::read_xlsx('transcritome_patients_translated.xlsx')
+rownames(metadata) <- gsub('.CEL', '', metadata$CEL_FILE)
+colnames(eset_symbol) <- gsub(".*P_", "P", colnames(eset_symbol))
+```
+## DEG between M0~M6
+```{r}
+# design matrix
+design <- model.matrix(~0 + LOCATION, data = metadata)
+fit1 <- lmFit(eset_symbol, design)
+colnames(design)
+
+# contrast
+contrast.matrix <- makeContrasts(M0_M6 = LOCATIONM0 - LOCATIONM6,
+                               levels=design)
+fit2 <- contrasts.fit(fit1, contrast.matrix)
+fit2 <- eBayes(fit2)
+
+top_gene <- topTable(fit2, adjust.method = "BH")
+results <- decideTests(fit2)
+print(top_gene)
+```
+## DEG between NR~R
+```{r}
+# design matrix
+design <- model.matrix(~0 + RECURRENCE, data = metadata)
+fit1 <- lmFit(eset_symbol, design)
+colnames(design)
+
+# contrast
+contrast.matrix <- makeContrasts(NR_R = RECURRENCENR - RECURRENCER,
+                               levels=design)
+fit2 <- contrasts.fit(fit1, contrast.matrix)
+fit2 <- eBayes(fit2)
+
+top_gene <- topTable(fit2, adjust.method = "BH")
+results <- decideTests(fit2)
+print(top_gene)
+```
+## DEG between NR~R [M0]
+```{r}
+# design matrix
+metadata$COMBINE <- paste0(metadata$LOCATION, metadata$RECURRENCE)
+design <-  model.matrix(~0 + COMBINE, data = metadata)
+fit1 <- lmFit(eset_symbol, design)
+colnames(design)
+
+# contrast between NR~R [M0]
+contrast.matrix <- makeContrasts(M0NR_M0R = COMBINEM0NR - COMBINEM0R,
+                               levels=design)
+fit2 <- contrasts.fit(fit1, contrast.matrix)
+fit2 <- eBayes(fit2)
+
+top_gene <- topTable(fit2, adjust.method = "BH")
+results <- decideTests(fit2)
+print(top_gene)
+```
+
+## DEG between NR~R [M6]
+```{r}
+# contrast between NR~R [M6]
+contrast.matrix <- makeContrasts(M6NR_M6R = COMBINEM6NR - COMBINEM6R,
+                               levels=design)
+fit2 <- contrasts.fit(fit1, contrast.matrix)
+fit2 <- eBayes(fit2)
+
+top_gene <- topTable(fit2, adjust.method = "BH")
+results <- decideTests(fit2)
+print(top_gene)
+```
