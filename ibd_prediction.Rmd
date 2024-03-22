@@ -162,6 +162,31 @@ Heatmap(t(apply( expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholo
         row_names_gp = gpar(fontsize = 10),
         )
 ```
+```{r}
+column_ha = HeatmapAnnotation(Location=meta_M0M6$LOCATION, 
+                              col = list(Location= c("M6" = "orange", "M0" = "blue"))
+                              )
+
+Heatmap(t(apply( expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_M0M6$CEL_FILE] ,1,scale)),
+        show_column_names = F, 
+        top_annotation = column_ha,
+        name = "Expression",
+        row_names_gp = gpar(fontsize = 10),
+        )
+
+meta_M0M6_separated <- meta_M0M6[order(LOCATION)]
+column_ha = HeatmapAnnotation(Location=meta_M0M6_separated$LOCATION, 
+                              col = list(Location= c("M6" = "orange", "M0" = "blue"))
+                              )
+
+Heatmap(t(apply( expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_M0M6_separated$CEL_FILE] ,1,scale)),
+        show_column_names = F, 
+        top_annotation = column_ha,
+        cluster_columns = F,
+        name = "Expression",
+        row_names_gp = gpar(fontsize = 10),
+        )
+```
 
 #### High variance genes heatmap
 ```{r}
@@ -205,13 +230,22 @@ Heatmap(t(apply( expr[names(high_var_genes),meta_M0M6$CEL_FILE] ,1,scale)),
 ```
 # PLS-DA Analysis
 ```{r}
-high_var_genes <- sort(apply(expr[,meta_M0$CEL_FILE], 1, sd), decreasing = T)[1:5000]
+high_var_genes <- sort(apply(expr[,meta_M6$CEL_FILE], 1, sd), decreasing = T)[1:5000]
 pls_da_expr <- t(expr[names(high_var_genes),meta_M0$CEL_FILE])
+#pls_da_expr <- 2 ^ pls_da_expr
 
 pca.expr <- pca(pls_da_expr, ncomp = 3, scale = TRUE)
 plotIndiv(pca.expr, group = meta_M0$RECURRENCE, ind.names = FALSE,
           legend = TRUE, 
           title = 'PCA comp 1 - 2')
+
+plsda.expr <- plsda(pls_da_expr, meta_M0$RECURRENCE, ncomp = 10)
+
+perf.plsda.expr <- perf(plsda.expr, validation = 'Mfold', folds = 3, 
+                  progressBar = FALSE,
+                  nrepeat = 10)         
+
+plot(perf.plsda.expr, sd = TRUE, legend.position = 'horizontal')
 ```
 
 # Recurrence prediction

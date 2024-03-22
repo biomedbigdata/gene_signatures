@@ -10,10 +10,14 @@ library(readxl)
 
 ```{r}
 # load data
-eset_symbol <- read.table('eset_symbol.txt')
-metadata <- readxl::read_xlsx('transcritome_patients_translated.xlsx')
+eset_symbol <- read.table('/nfs/scratch/gene_signature/eset_symbol.txt')
+metadata <- readxl::read_xlsx('data/transcritome_patients_translated.xlsx')
+metadata <- metadata[metadata$LOCATION!="Ctrl",]
+
 rownames(metadata) <- gsub('.CEL', '', metadata$CEL_FILE)
-colnames(eset_symbol) <- gsub(".*P_", "P", colnames(eset_symbol))
+colnames(eset_symbol) <- gsub(".*P_", "P_", colnames(eset_symbol))
+
+eset_symbol <- eset_symbol[,rownames(metadata)]
 ```
 ## DEG between M0~M6
 ```{r}
