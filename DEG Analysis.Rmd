@@ -6,81 +6,244 @@ output: html_document
 ```{r}
 library(limma)
 library(readxl)
+library(EnhancedVolcano)
+library(VennDiagram)
 ```
 
 ```{r}
 # load data
-eset_symbol <- read.table('/nfs/scratch/gene_signature/eset_symbol.txt')
-metadata <- readxl::read_xlsx('data/transcritome_patients_translated.xlsx')
-metadata <- metadata[metadata$LOCATION!="Ctrl",]
+eset_symbol <- as.data.frame(readxl::read_xlsx('../data/transcriptome_expression_matrix.xlsx'))
+rownames(eset_symbol) <- eset_symbol$...1
+eset_symbol <- eset_symbol[, -which(names(eset_symbol) == "...1")]
 
-rownames(metadata) <- gsub('.CEL', '', metadata$CEL_FILE)
-colnames(eset_symbol) <- gsub(".*P_", "P_", colnames(eset_symbol))
+metadata <- readxl::read_xlsx('../data/transcritome_patients_translated.xlsx')
+rownames(metadata) <- metadata$CEL_FILE
 
 eset_symbol <- eset_symbol[,rownames(metadata)]
+
+signature <- read.csv("/nfs/home/users/z.huang/IBD_gene_predict/data/signature_human.csv", header = F)
+signature <- signature$V1[2:33]
+selectLab <- signature
+head(rownames(eset_symbol))
 ```
-## DEG between M0~M6
+
+# DEG between LOCATION
+##M0~M6; M0~MI; M6~MI; 
 ```{r}
-# design matrix
-design <- model.matrix(~0 + LOCATION, data = metadata)
-fit1 <- lmFit(eset_symbol, design)
-colnames(design)
+# design matrix, paired analysis
+design_LOCATION <- model.matrix(~0 + LOCATION + PATIENT, data = metadata)
+fit_LOCATION <- lmFit(eset_symbol, design_LOCATION)
 
 # contrast
-contrast.matrix <- makeContrasts(M0_M6 = LOCATIONM0 - LOCATIONM6,
-                               levels=design)
-fit2 <- contrasts.fit(fit1, contrast.matrix)
-fit2 <- eBayes(fit2)
+contrast_M6_M0 <- makeContrasts(M6_M0 = LOCATIONM6 - LOCATIONM0,
+                               levels=design_LOCATION)
+contrast_MI_M0 <- makeContrasts(MI_M0 = LOCATIONM0 - LOCATIONMI,
+                               levels=design_LOCATION)
+contrast_M6_MI <- makeContrasts(M6_MI = LOCATIONM6 - LOCATIONMI,
+                               levels=design_LOCATION)
+# fit
+fit_M6_M0 <- contrasts.fit(fit_LOCATION, contrast_M6_M0)
+fit_M6_M0 <- eBayes(fit_M6_M0)
 
-top_gene <- topTable(fit2, adjust.method = "BH")
-results <- decideTests(fit2)
-print(top_gene)
+fit_MI_M0 <- contrasts.fit(fit_LOCATION, contrast_MI_M0)
+fit_MI_M0 <- eBayes(fit_MI_M0)
+
+fit_M6_MI <- contrasts.fit(fit_LOCATION, contrast_M6_MI)
+fit_M6_MI <- eBayes(fit_M6_MI)
+
+# plot 
+top_gene_M6_M0 <- topTable(fit_M6_M0, adjust.method = "BH",  number = Inf, coef = NULL)
+top_gene_MI_M0 <- topTable(fit_MI_M0, adjust.method = "BH",  number = Inf, coef = NULL)
+top_gene_M6_MI <- topTable(fit_M6_MI, adjust.method = "BH",  number = Inf, coef = NULL)
+
+EnhancedVolcano(top_gene_M6_M0,
+                lab = rownames(top_gene_M6_M0),
+                selectLab = selectLab,
+                x = 'logFC',
+                y = 'adj.P.Val',
+                title = 'M0 versus M6',
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                pointSize = 1.0,
+                labSize = 2.0)
+
+EnhancedVolcano(top_gene_MI_M0,
+                lab = rownames(top_gene_MI_M0),
+                selectLab = selectLab,
+                x = 'logFC',
+                y = 'adj.P.Val',
+                title = 'M0 versus MI',
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                pointSize = 1.0,
+                labSize = 2.0)
+
+EnhancedVolcano(top_gene_M6_MI,
+                lab = rownames(top_gene_M6_MI),
+                selectLab = selectLab,
+                x = 'logFC',
+                y = 'adj.P.Val',
+                title = 'MI versus M6',
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                pointSize = 1.0,
+                labSize = 2.0)
+
+
 ```
+### DEG between Ctrl and M0/MI
+```{r}
+# design matrix
+design_Ctrl <-  model.matrix(~0 + LOCATION, data = metadata)
+fit_Ctrl <- lmFit(eset_symbol, design_Ctrl)
+
+# contrast
+contrast_Ctrl_M0 <- makeContrasts(Ctrl_M0 = LOCATIONM0 - LOCATIONCtrl,
+                               levels=design_Ctrl)
+contrast_Ctrl_MI <- makeContrasts(Ctrl_MI = LOCATIONMI - LOCATIONCtrl,
+                               levels=design_Ctrl)
+contrast_Ctrl_M6 <- makeContrasts(Ctrl_M6 = LOCATIONM6 - LOCATIONCtrl,
+                               levels=design_Ctrl)
+
+# fit
+fit_Ctrl_M0 <- contrasts.fit(fit_Ctrl, contrast_Ctrl_M0)
+fit_Ctrl_M0 <- eBayes(fit_Ctrl_M0)
+
+fit_Ctrl_MI <- contrasts.fit(fit_Ctrl, contrast_Ctrl_MI)
+fit_Ctrl_MI <- eBayes(fit_Ctrl_MI)
+
+fit_Ctrl_M6 <- contrasts.fit(fit_Ctrl, contrast_Ctrl_M6)
+fit_Ctrl_M6 <- eBayes(fit_Ctrl_M6)
+
+# plot
+top_gene_Ctrl_M0 <- topTable(fit_Ctrl_M0, adjust.method = "BH", number = Inf, coef = NULL)
+top_gene_Ctrl_MI <- topTable(fit_Ctrl_MI, adjust.method = "BH", number = Inf, coef = NULL)
+top_gene_Ctrl_M6 <- topTable(fit_Ctrl_M6, adjust.method = "BH", number = Inf, coef = NULL)
+
+EnhancedVolcano(top_gene_Ctrl_M0,
+                lab = rownames(top_gene_Ctrl_M0),
+                selectLab = selectLab,
+                x = 'logFC',
+                y = 'adj.P.Val',
+                title = 'Ctrl vs. M0',
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                pointSize = 1.0,
+                labSize = 2.0)
+
+EnhancedVolcano(top_gene_Ctrl_MI,
+                lab = rownames(top_gene_Ctrl_MI),
+                selectLab = selectLab,
+                x = 'logFC',
+                y = 'adj.P.Val',
+                title = 'Ctrl vs. MI',
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                pointSize = 1.0,
+                labSize = 2.0)
+
+EnhancedVolcano(top_gene_Ctrl_M6,
+                lab = rownames(top_gene_Ctrl_M6),
+                selectLab = selectLab,
+                x = 'logFC',
+                y = 'adj.P.Val',
+                title = 'Ctrl vs. M6',
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                pointSize = 1.0,
+                labSize = 2.0)
+```
+
+# DEG between RECURENCE
 ## DEG between NR~R
 ```{r}
 # design matrix
-design <- model.matrix(~0 + RECURRENCE, data = metadata)
-fit1 <- lmFit(eset_symbol, design)
-colnames(design)
-
+design_RECURRENCE <- model.matrix(~0 + RECURRENCE, data = metadata)
+fit_RECURRENCE <- lmFit(eset_symbol, design_RECURRENCE)
+colnames(design_RECURRENCE)
 # contrast
-contrast.matrix <- makeContrasts(NR_R = RECURRENCENR - RECURRENCER,
-                               levels=design)
-fit2 <- contrasts.fit(fit1, contrast.matrix)
-fit2 <- eBayes(fit2)
+contrast_NR_R <- makeContrasts(NR_R = RECURRENCER - RECURRENCENR,
+                               levels=design_RECURRENCE)
+fit_RECURRENCE_Con <- contrasts.fit(fit_RECURRENCE, contrast_NR_R)
+fit_RECURRENCE_Con <- eBayes(fit_RECURRENCE_Con)
 
-top_gene <- topTable(fit2, adjust.method = "BH")
-results <- decideTests(fit2)
-print(top_gene)
+# plot
+top_gene_NR_R <- topTable(fit_RECURRENCE_Con, adjust.method = "BH", number = Inf, coef = NULL)
+
+EnhancedVolcano(top_gene_NR_R,
+                lab = rownames(top_gene_NR_R),
+                selectLab = selectLab,
+                x = 'logFC',
+                y = 'adj.P.Val',
+                title = 'NR versus R',
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                pointSize = 1.0,
+                labSize = 2.0)
+
 ```
-## DEG between NR~R [M0]
+
+## DEG between NR~R [M0] [MI] [M6]
 ```{r}
 # design matrix
 metadata$COMBINE <- paste0(metadata$LOCATION, metadata$RECURRENCE)
-design <-  model.matrix(~0 + COMBINE, data = metadata)
-fit1 <- lmFit(eset_symbol, design)
-colnames(design)
+design_RE_LO <-  model.matrix(~0 + COMBINE, data = metadata)
+fit_RE_LO <- lmFit(eset_symbol, design_RE_LO)
 
-# contrast between NR~R [M0]
-contrast.matrix <- makeContrasts(M0NR_M0R = COMBINEM0NR - COMBINEM0R,
-                               levels=design)
-fit2 <- contrasts.fit(fit1, contrast.matrix)
-fit2 <- eBayes(fit2)
+# contrast
+contrast_RE_M0 <- makeContrasts(M0NR_M0R = COMBINEM0R - COMBINEM0NR,
+                               levels=design_RE_LO)
+contrast_RE_MI <- makeContrasts(MINR_MIR = COMBINEMIR - COMBINEMINR,
+                               levels=design_RE_LO)
+contrast_RE_M6 <- makeContrasts(M6NR_M6R = COMBINEM6R - COMBINEM6NR,
+                               levels=design_RE_LO)
 
-top_gene <- topTable(fit2, adjust.method = "BH")
-results <- decideTests(fit2)
-print(top_gene)
-```
+# fit
+fit_RE_M0 <- contrasts.fit(fit_RE_LO, contrast_RE_M0)
+fit_RE_M0 <- eBayes(fit_RE_M0)
 
-## DEG between NR~R [M6]
-```{r}
-# contrast between NR~R [M6]
-contrast.matrix <- makeContrasts(M6NR_M6R = COMBINEM6NR - COMBINEM6R,
-                               levels=design)
-fit2 <- contrasts.fit(fit1, contrast.matrix)
-fit2 <- eBayes(fit2)
+fit_RE_MI <- contrasts.fit(fit_RE_LO, contrast_RE_MI)
+fit_RE_MI <- eBayes(fit_RE_MI)
 
-top_gene <- topTable(fit2, adjust.method = "BH")
-results <- decideTests(fit2)
-print(top_gene)
+fit_RE_M6 <- contrasts.fit(fit_RE_LO, contrast_RE_M6)
+fit_RE_M6 <- eBayes(fit_RE_M6)
+
+# plot
+top_gene_RE_M0 <- topTable(fit_RE_M0, adjust.method = "BH", number = Inf, coef = NULL)
+top_gene_RE_MI <- topTable(fit_RE_MI, adjust.method = "BH", number = Inf, coef = NULL)
+top_gene_RE_M6 <- topTable(fit_RE_M6, adjust.method = "BH", number = Inf, coef = NULL)
+
+EnhancedVolcano(top_gene_RE_M0,
+                lab = rownames(top_gene_RE_M0),
+                selectLab = selectLab,
+                x = 'logFC',
+                y = 'adj.P.Val',
+                title = 'NR versus R [M0]',
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                pointSize = 1.0,
+                labSize = 2.0)
+
+EnhancedVolcano(top_gene_RE_MI,
+                lab = rownames(top_gene_RE_MI),
+                selectLab = selectLab,
+                x = 'logFC',
+                y = 'adj.P.Val',
+                title = 'NR versus R [MI]',
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                pointSize = 1.0,
+                labSize = 2.0)
+
+EnhancedVolcano(top_gene_RE_M6,
+                lab = rownames(top_gene_RE_M6),
+                selectLab = selectLab,
+                x = 'logFC',
+                y = 'adj.P.Val',
+                title = 'NR versus R [M6]',
+                pCutoff = 0.05,
+                FCcutoff = 1.5,
+                pointSize = 1.0,
+                labSize = 2.0)
+
 ```
