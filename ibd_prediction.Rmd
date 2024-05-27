@@ -13,6 +13,9 @@ library(ComplexHeatmap)
 library(pROC)
 library(caret)
 library(mixOmics)
+library(infotheo)
+library(circlize)
+library(grDevices)
 set.seed(101)
 ```
 # Data preprocessing
@@ -26,6 +29,8 @@ setkeyv(meta, meta_key)                             # set key
 stopifnot(!any( duplicated(meta[,..meta_key]) ))    # check for duplicate rows
 stopifnot(!any( duplicated(colnames(meta)) ))       # check for duplicate columns
 
+# read Feuil1 
+feuil1 <- as.data.table(readxl::read_excel("data/transcriptome_expression_matrix.xlsx",sheet="Feuil1"))
 
 # read expression data
 expr <- as.data.table(readxl::read_excel("data/transcriptome_expression_matrix.xlsx"))
@@ -43,9 +48,13 @@ meta_M0 <- meta[LOCATION=="M0"]
 meta_MI <- meta[LOCATION=="MI"]
 meta_M6 <- meta[LOCATION=="M6"]
 meta_M0M6 <- meta[LOCATION=="M6"|LOCATION=="M0"]
+meta_M0MI <- meta[LOCATION=="M0"|LOCATION=="MI"]
+meta_M0MIC <- meta[LOCATION=="M0"|LOCATION=="MI"|LOCATION=="Ctrl"]
 
 # read mouse signature
-signature_mouse <- fread("data/signature.csv",header = F)[[1]]
+signature_dt <- fread("data/signature.csv")
+signature_mouse <- signature_dt$gene
+setkeyv(signature_dt, "gene")
 
 # read all mouse genes measured with nanostring 
 measured_genes_mouse <- fread("data/All samples_NormalizedData.csv")[[1]]
@@ -62,6 +71,7 @@ stopifnot(all(measured_genes_mouse %in% ortholog_mapping$input))
 # mark signature genes and hits in the human expr data
 ortholog_mapping$in_expr <- ortholog_mapping$ortholog_name %in% rownames(expr)
 ortholog_mapping$in_signature <- ortholog_mapping$input %in% signature_mouse 
+ortholog_mapping[in_signature==T,mouse:=signature_dt[input,pattern]]
 
 # count number of hits in the human expr data per mouse gene
 n_in_expr <- ortholog_mapping[,.("n_hits" = sum(in_expr)),by=input]
@@ -96,141 +106,241 @@ ggplot(plot_data,aes(x=colSum,fill=LOCATION)) +
 ggplot(plot_data,aes(x=colSum,fill=GENDER)) +
   geom_density(alpha=0.5)
 ```
-#### Outcome distribution
+#### PCA
+```{r}
+high_var_genes <- sort(apply(expr[,meta$CEL_FILE], 1, sd), decreasing = T)[1:10000]
+high_var_expr <- t(expr[names(high_var_genes),meta$CEL_FILE])
+
+high_var_pca <- pca(high_var_expr, ncomp = 3, scale = T)
+plotIndiv(high_var_pca, group = meta$LOCATION, ind.names = FALSE,
+          legend = TRUE, title="PCA - high variance genes", ellipse = T)
+
+signature_pca <- pca(t(expr[unique_ortholog_mapping[in_expr==T & in_signature, ortholog_name], meta$CEL_FILE]), ncomp = 3, scale = TRUE)
+plotIndiv(signature_pca, group = meta$LOCATION, ind.names = FALSE,
+          legend = TRUE, title="PCA - signature genes", ellipse = T)
+```
+
+#### Meta checks
 ```{r}
 table(meta$RECURRENCE, meta$LOCATION)
 ```
+```{r}
+table(meta$LOCATION)
+```
+Ctrl (25) -> Ctrl (25)
+M0  (196) -> M0I (200)
+MI  (147) -> M0M (149)
+M6  (121) -> M6  (122)
+Why do the numbers from publication and meta sheet not match?
+
+What is CENTRE?
+What are stenose, fistule, inflammatoire, Stoma?
+What is Postoperative anti-TNF?
+
+Why do RutgeertRec and RECURRENCE not match 1 to 1?
+```{r}
+table(meta$RutgeertRec, meta$RECURRENCE)
+```
+
+
+
 #### Signature heatmap
 ```{r}
-column_ha = HeatmapAnnotation(GENDER = meta$GENDER, LOCATION = meta$LOCATION, RECURRENCE=meta$RECURRENCE)
-Heatmap(t(apply( expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
+custom_heatmap <- function(expr, meta, genes, column_names = F, scale = T, ...){
+  
+  if(is.null(meta)){
+    samples <- colnames(expr)
+      column_ha = NULL
+  }else{
+    meta <- as.data.frame(meta, row.names = meta[[1]])[,-1,drop=F]
+    samples <- rownames(meta)
+    column_ha = HeatmapAnnotation(df=meta)
+  }
+  
+  genes <- as.data.frame(genes, row.names = genes[[1]])[,-1,drop=F]
+  gene_names <- rownames(genes)
+  row_ha = rowAnnotation(
+    df=genes, 
+    annotation_name_side="top",
+    #annotation_label=("\u0394/\u0394IEC"),
+    col = list(mouse= c("up" = "#E8E700", "down" = "#0092F4"))
+  )
+  
+  if(scale){
+    expr <- t(apply(expr[gene_names,samples],1,scale))
+    colnames(expr) <- samples
+  }else{
+    expr <- expr[gene_names,samples]
+  }
+  
+  
+  Heatmap(expr,
+        show_column_names = column_names, 
         top_annotation = column_ha,
         name = "Expression",
+        row_names_gp = gpar(fontsize = 10),
+        left_annotation = row_ha,
+        column_title_side = "top",
+        ...
         )
-
-column_ha = HeatmapAnnotation(GENDER = meta_M0$GENDER, LOCATION = meta_M0$LOCATION, RECURRENCE=meta_M0$RECURRENCE)
-Heatmap(t(apply( expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_M0$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        name = "Expression",
-        )
-
-column_ha = HeatmapAnnotation(GENDER = meta_M6$GENDER, LOCATION = meta_M6$LOCATION, RECURRENCE=meta_M6$RECURRENCE)
-Heatmap(t(apply( expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_M6$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        name = "Expression",
-        )
-
-column_ha = HeatmapAnnotation(GENDER = meta_MI$GENDER, LOCATION = meta_MI$LOCATION, RECURRENCE=meta_MI$RECURRENCE)
-Heatmap(t(apply( expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_MI$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        name = "Expression",
-        )
-
-column_ha = HeatmapAnnotation(GENDER = meta_M0M6$GENDER, LOCATION = meta_M0M6$LOCATION, RECURRENCE=meta_M0M6$RECURRENCE)
-Heatmap(t(apply( expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_M0M6$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        name = "Expression",
-        )
+}
 ```
+
 ```{r}
-column_ha = HeatmapAnnotation(Recurrence=ifelse(meta_M0$RECURRENCE=="R", "Recurrent", "Not recurrent"), 
-                              col = list(Recurrence= c("Recurrent" = "orange", "Not recurrent" = "blue"))
-                              )
 
-Heatmap(t(apply( expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_M0$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        name = "Expression",
-        row_names_gp = gpar(fontsize = 10),
-        )
 
-meta_M0_separated <- meta_M0[order(RECURRENCE)]
-column_ha = HeatmapAnnotation(Recurrence=ifelse(meta_M0_separated$RECURRENCE=="R", "Recurrent", "Not recurrent"), 
-                              col = list(Recurrence= c("Recurrent" = "orange", "Not recurrent" = "blue"))
-                              )
+custom_heatmap(
+  expr, 
+  meta[LOCATION=="M0",.(CEL_FILE,RECURRENCE,LOCATION,inflammatoire,Smoker,Granuloma,Rutgeert2)],
+  unique_ortholog_mapping[in_expr==T&in_signature==T,.(ortholog_name,mouse)],
+  cluster_columns = T)
 
-Heatmap(t(apply( expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_M0_separated$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        cluster_columns = F,
-        name = "Expression",
-        row_names_gp = gpar(fontsize = 10),
-        )
+custom_heatmap(
+  expr, 
+  meta[LOCATION=="M6",.(CEL_FILE,RECURRENCE,LOCATION,Reecal_Rut=as.numeric(Reeval_Rut))],
+  unique_ortholog_mapping[in_expr==T&in_signature==T,.(ortholog_name,mouse)],
+  cluster_columns = T)
+
+custom_heatmap(
+  expr, 
+  meta[LOCATION=="M6",.(CEL_FILE,RECURRENCE,LOCATION)][order(RECURRENCE)],
+  unique_ortholog_mapping[in_expr==T&in_signature==T,.(ortholog_name,mouse)],
+  cluster_columns = F)
+
+custom_heatmap(
+  expr, 
+  meta[LOCATION=="M0"|LOCATION=="MI",.(CEL_FILE,LOCATION)],
+  unique_ortholog_mapping[in_expr==T&in_signature==T,.(ortholog_name,mouse)],
+  cluster_columns = T)
+
+custom_heatmap(
+  expr, 
+  meta[LOCATION=="M0"|LOCATION=="MI",.(CEL_FILE,LOCATION)][order(LOCATION)],
+  unique_ortholog_mapping[in_expr==T&in_signature==T,.(ortholog_name,mouse)],
+  cluster_columns = F)
+
+custom_heatmap(
+  expr, 
+  meta[LOCATION=="M0"|LOCATION=="MI",.(CEL_FILE,LOCATION)][order(LOCATION)],
+  unique_ortholog_mapping[in_expr==T&in_signature==T,.(ortholog_name,mouse)][order(mouse)],
+  cluster_columns = F, cluster_rows = F)
+
+
 ```
+#### Location summarized heatmap
+
 ```{r}
-column_ha = HeatmapAnnotation(Location=meta_M0M6$LOCATION, 
-                              col = list(Location= c("M6" = "orange", "M0" = "blue"))
-                              )
+# MI, M0, Ctrl
+expr_scaled <- apply(expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_M0MIC$CEL_FILE] ,1,scale)
+rownames(expr_scaled) <- meta_M0MIC$CEL_FILE
 
-Heatmap(t(apply( expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_M0M6$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        name = "Expression",
-        row_names_gp = gpar(fontsize = 10),
-        )
+summarized_expr <- sapply(unique(meta_M0MIC$LOCATION), function(location){
+  colMeans(expr_scaled[meta_M0MIC[LOCATION==location,CEL_FILE],])
+})
 
-meta_M0M6_separated <- meta_M0M6[order(LOCATION)]
-column_ha = HeatmapAnnotation(Location=meta_M0M6_separated$LOCATION, 
-                              col = list(Location= c("M6" = "orange", "M0" = "blue"))
-                              )
+# mutual information
+concordance <- data.frame(
+  mouse = unique_ortholog_mapping[in_signature==T,mouse],
+  human = ifelse(sign(summarized_expr[unique_ortholog_mapping[in_signature==T,ortholog_name],"M0"])>0, "up", "down")
+  )
+concordance$concordance <- concordance$mouse == concordance$human
+mi <- mutinformation(concordance$mouse,concordance$human)
+random_mi <- sapply(1:1000, function(i){mutinformation(sample(concordance$mouse),concordance$human)})
+mi_pval <- (sum(random_mi>mi) + 1)/(length(random_mi)+1)
+paste("concordant genes:",sum(concordance$concordance),"mutual information:",mi,"p-value",mi_pval)
 
-Heatmap(t(apply( expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_M0M6_separated$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        cluster_columns = F,
-        name = "Expression",
-        row_names_gp = gpar(fontsize = 10),
-        )
+custom_heatmap(summarized_expr, NULL, unique_ortholog_mapping[in_signature==T,.(ortholog_name,mouse,concordance=concordance$concordance)] ,column_names=T, scale = F)
+custom_heatmap(summarized_expr, NULL, unique_ortholog_mapping[in_signature==T,.(ortholog_name,mouse,concordance=concordance$concordance)][order(mouse)],cluster_rows = F, column_names=T, scale = F)
+
+
+# MI, M0
+expr_scaled <- apply(expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_M0MI$CEL_FILE] ,1,scale)
+rownames(expr_scaled) <- meta_M0MI$CEL_FILE
+
+summarized_expr <- sapply(unique(meta_M0MI$LOCATION), function(location){
+  colMeans(expr_scaled[meta_M0MI[LOCATION==location,CEL_FILE],])
+})
+
+# mutual information
+concordance <- data.frame(
+  mouse = unique_ortholog_mapping[in_signature==T,mouse],
+  human = ifelse(sign(summarized_expr[unique_ortholog_mapping[in_signature==T,ortholog_name],"M0"])>0, "up", "down")
+  )
+concordance$concordance <- concordance$mouse == concordance$human
+mi <- mutinformation(concordance$mouse,concordance$human)
+random_mi <- sapply(1:1000, function(i){mutinformation(sample(concordance$mouse),concordance$human)})
+mi_pval <- (sum(random_mi>mi) + 1)/(length(random_mi)+1)
+paste("concordant genes:",sum(concordance$concordance),"mutual information:",mi,"p-value",mi_pval)
+
+custom_heatmap(summarized_expr, NULL, unique_ortholog_mapping[in_signature==T,.(ortholog_name,mouse,concordance=concordance$concordance)] ,column_names=T, scale = F)
+custom_heatmap(summarized_expr, NULL, unique_ortholog_mapping[in_signature==T,.(ortholog_name,mouse,concordance=concordance$concordance)][order(mouse)],cluster_rows = F, column_names=T, scale = F)
+
 ```
 
-#### High variance genes heatmap
+
+# For paper
 ```{r}
-n_genes <- length(unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name])
-high_var_genes <- sort(apply(expr, 1, sd), decreasing = T)[1:n_genes]
 
-column_ha = HeatmapAnnotation(GENDER = meta$GENDER, LOCATION = meta$LOCATION, RECURRENCE=meta$RECURRENCE)
-Heatmap(t(apply( expr[names(high_var_genes),meta$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        name = "Expression",
-        )
+# scale expression data
+expr_scaled <- apply(expr[unique_ortholog_mapping[in_signature==T,ortholog_name],meta_M0MI$CEL_FILE] ,1,scale)
+rownames(expr_scaled) <- meta_M0MI$CEL_FILE
 
-column_ha = HeatmapAnnotation(GENDER = meta_M0$GENDER, LOCATION = meta_M0$LOCATION, RECURRENCE=meta_M0$RECURRENCE)
-Heatmap(t(apply( expr[names(high_var_genes),meta_M0$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        name = "Expression",
-        )
+# mean per location
+summarized_expr <- sapply(unique(c("MI","M0")), function(location){
+  colMeans(expr_scaled[meta_M0MI[LOCATION==location,CEL_FILE],])
+})
 
-column_ha = HeatmapAnnotation(GENDER = meta_M6$GENDER, LOCATION = meta_M6$LOCATION, RECURRENCE=meta_M6$RECURRENCE)
-Heatmap(t(apply( expr[names(high_var_genes),meta_M6$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        name = "Expression",
-        )
+# concordance data
+concordance <- data.frame(
+  mouse = unique_ortholog_mapping[in_signature==T,mouse],
+  human = ifelse(sign(summarized_expr[unique_ortholog_mapping[in_signature==T,ortholog_name],"M0"])>0, "up", "down")
+  )
+concordance$concordance <- concordance$mouse == concordance$human
+mi <- mutinformation(concordance$mouse,concordance$human)
+set.seed(0)
+random_mi <- sapply(1:10000, function(i){mutinformation(sample(concordance$mouse),concordance$human)})
+mi_pval <- (sum(random_mi>mi) + 1)/(length(random_mi)+1)
+paste("concordant genes:",sum(concordance$concordance),"mutual information:",mi,"p-value",mi_pval)
 
-column_ha = HeatmapAnnotation(GENDER = meta_MI$GENDER, LOCATION = meta_MI$LOCATION, RECURRENCE=meta_MI$RECURRENCE)
-Heatmap(t(apply( expr[names(high_var_genes),meta_MI$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        name = "Expression",
-        )
+concordance$Mice <- ifelse(concordance$mouse=="up", "up in \u0394/\u0394IEC", "down in \u0394/\u0394IEC")
+grDevices::cairo_pdf("heatmap.pdf", width = 4, height = 7,)
+# row annotation
+row_ha = rowAnnotation(
+  Mice=concordance$Mice, 
+  annotation_name_side="top",
+  annotation_name_rot=0,
+  col = list(Mice= c("up in \u0394/\u0394IEC" = "#E8E700", "down in \u0394/\u0394IEC" = "#0092F4"))
+)
 
-column_ha = HeatmapAnnotation(GENDER = meta_M0M6$GENDER, LOCATION = meta_M0M6$LOCATION, RECURRENCE=meta_M0M6$RECURRENCE)
-Heatmap(t(apply( expr[names(high_var_genes),meta_M0M6$CEL_FILE] ,1,scale)),
-        show_column_names = F, 
-        top_annotation = column_ha,
-        name = "Expression",
-        )
+col_fun = colorRamp2(c(-0.5, 0, 0.5), c("blue", "white", "red"))
+
+concordance$col <- "grey"
+concordance[concordance$concordance & concordance$mouse=="up",]$col <- "red"
+concordance[concordance$concordance & concordance$mouse=="down",]$col <- "blue"
+
+Heatmap(summarized_expr,
+  name = "Expression",
+  row_names_gp = gpar(fontsize = 9, col = concordance$col),
+  left_annotation = row_ha,
+  column_title_side = "top",
+  cluster_columns = F,
+  column_labels = c("M0M","M0I"),
+  column_names_side = "top",
+  column_names_rot = 0,
+  column_names_centered = T,
+  col = col_fun,
+  width = unit(3, "cm"),
+  )
+dev.off()
+  
+custom_heatmap(summarized_expr, NULL, unique_ortholog_mapping[in_signature==T,.(ortholog_name,mouse,concordance=concordance$concordance)] ,column_names=T, scale = F)
+
 ```
+
+
 # PLS-DA Analysis
 ```{r}
-high_var_genes <- sort(apply(expr[,meta_M6$CEL_FILE], 1, sd), decreasing = T)[1:5000]
+high_var_genes <- sort(apply(expr[,meta_M0$CEL_FILE], 1, sd), decreasing = T)[1:5000]
 pls_da_expr <- t(expr[names(high_var_genes),meta_M0$CEL_FILE])
 #pls_da_expr <- 2 ^ pls_da_expr
 
@@ -246,6 +356,80 @@ perf.plsda.expr <- perf(plsda.expr, validation = 'Mfold', folds = 3,
                   nrepeat = 10)         
 
 plot(perf.plsda.expr, sd = TRUE, legend.position = 'horizontal')
+```
+# M0 vs MI prediction
+```{r}
+logistic_glmnet_loc <- function(meta, expr, signature){
+  
+  x <- t(expr[signature, meta$CEL_FILE])
+  y <- meta$LOCATION
+  
+  fit <- glmnet(x, y, family = "binomial")
+  plot(fit, label = T)
+  cvfit <- cv.glmnet(x, y, family = "binomial")
+  plot(cvfit)
+  print(cvfit)
+  print(coef(cvfit, s = "lambda.1se"))
+}
+
+logistic_glm_loc <- function(meta, expr, signature, roc=F, summary=F, performance=F){
+  
+  x <- t(expr[signature, meta$CEL_FILE])
+  y <- meta$LOCATION
+  
+  data <- as.data.frame(x)
+  data$LOCATION <- 0
+  data$LOCATION[y=="M0"] <- 1
+  
+  glm_model <- glm(LOCATION ~.,family = "binomial", data)
+  
+  # prediction
+  model_prob = predict(glm_model, type = "response")
+  model_pred = ifelse(model_prob > 0.5, "M0", "MI")
+  train_tab = table(predicted = model_pred, actual = y)
+  train_con_mat = confusionMatrix(train_tab)
+  
+  if(summary){
+    print(summary(glm_model))
+  }
+  
+  if(roc){
+    roc(y ~ model_prob, plot = TRUE, print.auc = TRUE)
+  }
+
+  if(performance){
+    print(train_con_mat)
+  }
+  
+  train_con_mat$overall["Accuracy"]
+}
+```
+
+```{r}
+signature_human <- unique_ortholog_mapping[in_signature==T,ortholog_name]
+logistic_glmnet_loc(meta_M0MI, expr, signature_human)
+```
+Logistic regression with full signature
+```{r}
+# Analysis with glm
+accuracy <- logistic_glm_loc(meta_M0MI, expr, signature_human, T, T, T)
+```
+Logistic regression with random signatures
+```{r}
+
+random_signatures <- lapply(1:1000,function(i){
+  sample(unique_ortholog_mapping$ortholog_name,length(signature_human))
+})
+
+random_accuracy <- sapply(random_signatures, function(random_signature){
+  logistic_glm_loc(meta_M0MI, expr, random_signature)
+})
+
+ggplot(data.frame(random_accuracy=random_accuracy), aes(x=random_accuracy)) +
+  geom_histogram(bins=30) +
+  geom_vline(xintercept=accuracy, color="red")
+
+(sum(random_accuracy>accuracy)+1)/(length(random_signatures)+1)
 ```
 
 # Recurrence prediction
