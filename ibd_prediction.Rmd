@@ -1,8 +1,9 @@
 ---
-title: "IBD prediction"
+title: "Metabolic injury signature in human CD samples"
 output: html_notebook
 ---
 
+### Load libraries
 ```{r}
 library(data.table)
 library(readxl)
@@ -18,10 +19,10 @@ library(circlize)
 library(grDevices)
 set.seed(101)
 ```
-# Data preprocessing
+# Data processing
 ### Read data
 ```{r}
-# read meta data
+# read CD meta data
 meta <- as.data.table(readxl::read_excel("data/transcritome_patients_translated.xlsx"))
 
 meta_key <- "CEL_FILE"
@@ -29,10 +30,8 @@ setkeyv(meta, meta_key)                             # set key
 stopifnot(!any( duplicated(meta[,..meta_key]) ))    # check for duplicate rows
 stopifnot(!any( duplicated(colnames(meta)) ))       # check for duplicate columns
 
-# read Feuil1 
-feuil1 <- as.data.table(readxl::read_excel("data/transcriptome_expression_matrix.xlsx",sheet="Feuil1"))
 
-# read expression data
+# read CD expression data
 expr <- as.data.table(readxl::read_excel("data/transcriptome_expression_matrix.xlsx"))
 expr_key <- "gene"
 colnames(expr)[1] <- expr_key
@@ -44,6 +43,11 @@ expr <- expr[, c(key(expr), meta$CEL_FILE), with=F]
 stopifnot(all(colnames(expr)[-1]==meta[,CEL_FILE]))
 expr <- as.matrix(expr, rownames="gene")
 
+# generate different meta sheets for different sample types
+# Ctrl -> Control samples
+# M0 -> M0I samples
+# M6 -> M6
+# MI -> M0M
 meta_M0 <- meta[LOCATION=="M0"]
 meta_MI <- meta[LOCATION=="MI"]
 meta_M6 <- meta[LOCATION=="M6"]
@@ -51,7 +55,7 @@ meta_M0M6 <- meta[LOCATION=="M6"|LOCATION=="M0"]
 meta_M0MI <- meta[LOCATION=="M0"|LOCATION=="MI"]
 meta_M0MIC <- meta[LOCATION=="M0"|LOCATION=="MI"|LOCATION=="Ctrl"]
 
-# read mouse signature
+# read mouse metabolic signature
 signature_dt <- fread("data/signature.csv")
 signature_mouse <- signature_dt$gene
 setkeyv(signature_dt, "gene")
@@ -144,7 +148,7 @@ table(meta$RutgeertRec, meta$RECURRENCE)
 
 
 
-#### Signature heatmap
+# Heatmap visualization
 ```{r}
 custom_heatmap <- function(expr, meta, genes, column_names = F, scale = T, ...){
   
@@ -186,6 +190,7 @@ custom_heatmap <- function(expr, meta, genes, column_names = F, scale = T, ...){
 }
 ```
 
+## Heatmaps for different sample groups and annotations
 ```{r}
 
 
@@ -227,8 +232,8 @@ custom_heatmap(
 
 
 ```
-#### Location summarized heatmap
-
+## Location summarized heatmap
+(One column per sample group)
 ```{r}
 # MI, M0, Ctrl
 expr_scaled <- apply(expr[unique_ortholog_mapping[in_expr==T&in_signature==T,ortholog_name],meta_M0MIC$CEL_FILE] ,1,scale)
@@ -278,7 +283,7 @@ custom_heatmap(summarized_expr, NULL, unique_ortholog_mapping[in_signature==T,.(
 ```
 
 
-# For paper
+## Visualization for publication
 ```{r}
 
 # scale expression data
@@ -286,7 +291,7 @@ expr_scaled <- apply(expr[unique_ortholog_mapping[in_signature==T,ortholog_name]
 rownames(expr_scaled) <- meta_M0MI$CEL_FILE
 
 # mean per location
-summarized_expr <- sapply(unique(c("MI","M0")), function(location){
+summarized_expr <- sapply(unique(c("M0","MI")), function(location){
   colMeans(expr_scaled[meta_M0MI[LOCATION==location,CEL_FILE],])
 })
 
@@ -303,7 +308,9 @@ mi_pval <- (sum(random_mi>mi) + 1)/(length(random_mi)+1)
 paste("concordant genes:",sum(concordance$concordance),"mutual information:",mi,"p-value",mi_pval)
 
 concordance$Mice <- ifelse(concordance$mouse=="up", "up in \u0394/\u0394IEC", "down in \u0394/\u0394IEC")
-grDevices::cairo_pdf("heatmap.pdf", width = 4, height = 7,)
+
+
+#grDevices::cairo_pdf("heatmap.pdf", width = 4, height = 7,)
 # row annotation
 row_ha = rowAnnotation(
   Mice=concordance$Mice, 
@@ -312,11 +319,11 @@ row_ha = rowAnnotation(
   col = list(Mice= c("up in \u0394/\u0394IEC" = "#E8E700", "down in \u0394/\u0394IEC" = "#0092F4"))
 )
 
-col_fun = colorRamp2(c(-0.5, 0, 0.5), c("blue", "white", "red"))
+col_fun = colorRamp2(c(-0.5, 0, 0.5), c("#0092F4", "black", "#E8E700"))
 
 concordance$col <- "grey"
-concordance[concordance$concordance & concordance$mouse=="up",]$col <- "red"
-concordance[concordance$concordance & concordance$mouse=="down",]$col <- "blue"
+concordance[concordance$concordance,]$col <- "black"
+
 
 Heatmap(summarized_expr,
   name = "Expression",
@@ -331,9 +338,8 @@ Heatmap(summarized_expr,
   col = col_fun,
   width = unit(3, "cm"),
   )
-dev.off()
+#dev.off()
   
-custom_heatmap(summarized_expr, NULL, unique_ortholog_mapping[in_signature==T,.(ortholog_name,mouse,concordance=concordance$concordance)] ,column_names=T, scale = F)
 
 ```
 
