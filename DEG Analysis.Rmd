@@ -247,3 +247,38 @@ EnhancedVolcano(top_gene_RE_M6,
                 labSize = 2.0)
 
 ```
+# bar plot
+```{r}
+# sort by p value
+top_gene_MI_M0$gene <- rownames(top_gene_MI_M0)
+sorted_results <- top_gene_MI_M0[order(top_gene_MI_M0$adj.P.Val),]
+write.csv(sorted_results, file = 'DEGs_M0M_MI.csv')
+
+sorted_signature <- sorted_results[rownames(sorted_results) %in% signature,]
+dim(sorted_signature)
+sorted_signature$log_adj.pvalue <- -log10(sorted_signature$adj.P.Val)
+sorted_signature$subgroup <- ifelse(sorted_signature$adj.P.Val > 0.05, "NS", '')
+sorted_signature$subgroup <- ifelse(sorted_signature$adj.P.Val < 0.05 & sorted_signature$logFC < 0, "down in M0I", sorted_signature$subgroup)
+sorted_signature$subgroup <- ifelse(sorted_signature$adj.P.Val < 0.05 & sorted_signature$logFC > 0, "up in M0I", sorted_signature$subgroup)
+sorted_signature$subgroup <- as.factor(sorted_signature$subgroup)
+sorted_signature$subgroup1 <- ifelse(sorted_signature$logFC > 0, "up in M0I", 'down in M0I')
+sorted_signature$subgroup1
+
+# plot
+bar_plot <- ggplot(sorted_signature, aes(x = log_adj.pvalue, y = reorder(gene, log_adj.pvalue), fill = subgroup1)) +
+     geom_bar(stat = "identity") +
+     #scale_fill_manual(values = c("red","blue", "grey"),
+                      # breaks = c("up in M0I", "down in M0I", 'NS'),
+                      # labels = c("up in M0I", "down in M0I", 'NS')) +
+     scale_fill_manual(values = c("red","blue"),
+                      breaks = c("up in M0I", 'down in M0I'),
+                      labels = c("up in M0I", 'down in M0I')) +
+                      ylab(expression("Signature")) +
+       xlab(expression("-log"["10"]*"P Value")) +
+     theme(panel.background = element_rect(fill = "transparent"),
+            panel.border = element_rect(color = "black", fill = NA)) +
+      labs(fill = "") +
+       geom_vline(xintercept = 1.30103, linetype = "dashed", color = "black") #-log10(0.05)
+
+ggsave('refine3_pvalue.pdf', bar_plot)
+```
